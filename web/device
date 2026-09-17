@@ -1,0 +1,212 @@
+#!/usr/bin/env python3
+"""Enable or disable an AirPlay device in spotraop's config.xml, then restart spotraop.
+
+    device list
+    device enable  <udn> [--host <host name>]
+    device disable <udn>
+
+<udn> is the full mDNS name, for example A0A0A0A0A0A1@Study._raop._tcp.local.
+With --host (the device's mDNS host name, which the web page passes along),
+`enable` waits until spotraop has picked the device up.
+
+Runs on the Docker host with the system Python (3.11 or newer), standard
+library only. It lives in <project>/web/ next to spotconfig.py.
+"""
+
+from __future__ import annotations
+
+import argparse
+import contextlib
+import fcntl
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+from datetime import datetime, timezone
+from typing import Optional
+
+import spotconfig
+
+HERE = os.path.dirname(os.path.realpath(__file__))
+PROJECT_DIR = os.environ.get("SPOTCONNECT_DIR", os.path.dirname(HERE))
+CONFIG_PATH = os.path.join(PROJECT_DIR, "config", "config.xml")
+BACKUP_PATH = CONFIG_PATH + ".prev"
+LOCK_PATH = os.path.join(PROJECT_DIR, ".device.lock")
+DOCKER = os.environ.get("DEVICE_DOCKER", "docker")
+WAIT_SECONDS = int(os.environ.get("DEVICE_WAIT_SECONDS", "30"))
+SERVICE = "spotraop"
+STARTED_MARKER = "Starting spotraop version"
+ANSI = re.compile(r"\x1b\[[0-9;]*m")
+
+
+class Failure(Exception):
+    """A problem that ends the command with exit code 1."""
+
+
+def say(text: str, end: str = "\n") -> None:
+    print(text, end=end, flush=True)
+
+
+def compose(*args: str) -> str:
+    try:
+        result = subprocess.run([DOCKER, "compose", *args], cwd=PROJECT_DIR,
+                                capture_output=True, text=True, check=True)
+    except FileNotFoundError as exc:
+        raise Failure(f"cannot run {DOCKER}: {exc}") from exc
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or "").strip()
+        raise Failure(f"docker compose {' '.join(args)} failed: {detail}") from exc
+    return result.stdout
+
+
+def logs_since(since: float) -> str:
+    stamp = datetime.fromtimestamp(since, timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+    return ANSI.sub("", compose("logs", "--no-color", "--since", stamp, SERVICE))
+
+
+def last_lines(since: float, count: int = 15) -> str:
+    return "\n".join(logs_since(since).splitlines()[-count:])
+
+
+@contextlib.contextmanager
+def locked():
+    with open(LOCK_PATH, "w") as handle:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise Failure("another device command is running, try again in a minute") from None
+        yield
+
+
+def check_udn(udn: str) -> str:
+    udn = spotconfig.normalize_udn(udn)
+    if not spotconfig.is_valid_udn(udn):
+        raise Failure(f"not a valid device id: {udn!r} "
+                      "(expected something like A1B2C3D4E5F6@Name._raop._tcp.local)")
+    return udn
+
+
+def update_and_restart(change) -> float:
+    """Stop spotraop, apply change(tree) to the config, start spotraop again.
+
+    spotraop is always started again, also when the update fails. Returns the
+    time just before the start, for reading the log from there on.
+    """
+    say("Stopping spotraop... ", end="")
+    compose("stop", SERVICE)
+    say("done")
+    error = None
+    backup_made = False
+    try:
+        say(f"Updating config (backup in {os.path.basename(BACKUP_PATH)})... ", end="")
+        shutil.copy2(CONFIG_PATH, BACKUP_PATH)
+        backup_made = True
+        tree = spotconfig.load(CONFIG_PATH)
+        change(tree)
+        spotconfig.save(tree, CONFIG_PATH)
+        say("done")
+    except Exception as exc:
+        say("failed")
+        error = exc
+        if backup_made:
+            shutil.copy2(BACKUP_PATH, CONFIG_PATH)
+            say("Restored the previous config.")
+    started_at = time.time()
+    say("Starting spotraop... ", end="")
+    compose("start", SERVICE)
+    say("done")
+    if error is not None:
+        raise Failure(f"could not update the config: {error}")
+    return started_at
+
+
+def wait_for(marker: str, since: float, waiting_text: str) -> bool:
+    say(f"{waiting_text} (up to {WAIT_SECONDS} s)", end="")
+    deadline = time.monotonic() + WAIT_SECONDS
+    while True:
+        if marker in logs_since(since):
+            say("")
+            return True
+        if time.monotonic() >= deadline:
+            say("")
+            return False
+        say(".", end="")
+        time.sleep(1)
+
+
+def cmd_list() -> int:
+    for device in spotconfig.list_devices(spotconfig.load(CONFIG_PATH)):
+        state = "on " if device.enabled else "off"
+        say(f"{state}  {device.spotify_name:<28} {device.udn}")
+    return 0
+
+
+def cmd_enable(udn: str, host: Optional[str]) -> int:
+    udn = check_udn(udn)
+    with locked():
+        preview = spotconfig.load(CONFIG_PATH)
+        changed = spotconfig.enable(preview, udn)
+        name = spotconfig.find_device(preview, udn).spotify_name
+        if not changed:
+            say(f"{name} is already enabled. Nothing to do.")
+            return 0
+        started_at = update_and_restart(lambda tree: spotconfig.enable(tree, udn))
+        if not host:
+            say(f"Done: {name} is enabled. It appears in Spotify once spotraop finds it "
+                "on the network.")
+            return 0
+        if wait_for(f"adding renderer ({host}@", started_at, f"Waiting for {name} to appear"):
+            say(f"Ready: {name} is now available in Spotify.")
+            return 0
+        say(f"{name} did not show up in the log. The config is updated and spotraop is running.")
+        say("Check that the device is switched on. Last log lines:")
+        say(last_lines(started_at))
+        return 1
+
+
+def cmd_disable(udn: str) -> int:
+    udn = check_udn(udn)
+    with locked():
+        device = spotconfig.find_device(spotconfig.load(CONFIG_PATH), udn)
+        if device is None:
+            say(f"{spotconfig.airplay_name(udn)} is not in the config. Nothing to do.")
+            return 0
+        if not device.enabled:
+            say(f"{device.spotify_name} is already disabled. Nothing to do.")
+            return 0
+        started_at = update_and_restart(lambda tree: spotconfig.disable(tree, udn))
+        if not wait_for(STARTED_MARKER, started_at, "Waiting for spotraop to start"):
+            say("spotraop did not report a start. Last log lines:")
+            say(last_lines(started_at))
+            return 1
+        say(f"Done: {device.spotify_name} is disabled. Spotify may list it for a little "
+            "while longer.")
+        return 0
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="device", description="Enable or disable an AirPlay device for spotraop.")
+    commands = parser.add_subparsers(dest="command", required=True)
+    commands.add_parser("list", help="show the devices in the config")
+    enable = commands.add_parser("enable", help="enable a device, adding it when missing")
+    enable.add_argument("udn")
+    enable.add_argument("--host", help="mDNS host name, used to confirm the device came up")
+    disable = commands.add_parser("disable", help="disable a device")
+    disable.add_argument("udn")
+    args = parser.parse_args(argv)
+    try:
+        if args.command == "list":
+            return cmd_list()
+        if args.command == "enable":
+            return cmd_enable(args.udn, args.host)
+        return cmd_disable(args.udn)
+    except (Failure, spotconfig.ConfigError) as exc:
+        print(f"Error: {exc}", file=sys.stderr, flush=True)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

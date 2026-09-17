@@ -1,0 +1,11 @@
+config/
+*.zip
+spotraop-*
+__pycache__/
+.device.lock
+.env
+
+# Local working notes about one particular home network, not published.
+CLAUDE.md
+PROJECT_STATUS.md
+docs/

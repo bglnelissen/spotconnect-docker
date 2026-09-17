@@ -1,0 +1,58 @@
+# Host-specific values (address, ssh target) come from .env, see .env.example.
+services:
+  spotraop:
+    build:
+      context: .
+      args:
+        SPOTCONNECT_VERSION: "0.20.7"
+    image: spotraop:0.20.7
+    container_name: spotraop
+    network_mode: host
+    restart: unless-stopped
+    user: "1000:1000"
+    volumes:
+      - ./config:/config
+    command:
+      # -Z and -k are not optional: without -Z the process runs an interactive
+      # loop and burns a full core, without -k docker stop waits for a timeout.
+      - -Z
+      - -k
+      - -x
+      - /config/config.xml
+      - -I
+      - -J
+      - /config/credentials
+      - -b
+      - ${HOST_IP:?set HOST_IP in .env}
+      - -a
+      - 38010:64
+      - -d
+      - all=info
+      # Deliberately no -c: that flag is inverted in 0.20.7. "-c alac" yields PCM
+      # and "-c pcm" yields ALAC, and it overrides the config file. Without it,
+      # <alac_encode>1</alac_encode> from config.xml applies, which is ALAC.
+
+  # Web page that finds AirPlay devices and shows the commands to enable or
+  # disable them. It only reads the config; the commands run web/device on the
+  # host. Host networking is needed to see mDNS.
+  web:
+    build: ./web
+    image: spotconnect-web:local
+    container_name: spotconnect-web
+    network_mode: host
+    restart: unless-stopped
+    init: true
+    user: "1000:1000"
+    environment:
+      HOST: ${HOST_IP:?set HOST_IP in .env}
+      PORT: ${WEB_PORT:-8131}
+      INTERFACE: ${HOST_IP:?set HOST_IP in .env}
+      SSH_TARGET: ${SSH_TARGET:?set SSH_TARGET in .env}
+      REMOTE_DEVICE: ${REMOTE_DIR:-~/spotconnect}/web/device
+      REMOTE_CONFIG: ${REMOTE_DIR:-~/spotconnect}/config/config.xml
+    volumes:
+      - ./config:/config:ro
+    logging:
+      options:
+        max-size: "1m"
+        max-file: "2"

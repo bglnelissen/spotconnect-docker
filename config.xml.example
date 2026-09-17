@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<spotraop>
+<common>
+<enabled>0</enabled>
+<volume_feedback>1</volume_feedback>
+<volume_mode>2</volume_mode>
+<send_metadata>1</send_metadata>
+<send_coverart>1</send_coverart>
+<remove_timeout>120</remove_timeout>
+<alac_encode>1</alac_encode>
+<encryption>0</encryption>
+<read_ahead>2000</read_ahead>
+</common>
+<main_log>info</main_log>
+<raop_log>info</raop_log>
+<util_log>info</util_log>
+<log_limit>-1</log_limit>
+<interface>192.168.1.10</interface>
+<ports>0:0</ports>
+<credentials_path></credentials_path>
+<credentials>0</credentials>
+<client_id></client_id>
+<client_secret></client_secret>
+</spotraop>
