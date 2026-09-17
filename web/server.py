@@ -256,6 +256,7 @@ button { font: inherit; padding: 8px 14px; border: 0; border-radius: 8px;
             word-break: break-all; font: 13px/1.45 ui-monospace, Menlo, monospace; }
 code { font-family: ui-monospace, Menlo, monospace; font-size: .9em; }
 a { color: var(--accent); }
+footer { margin-top: 40px; }
 </style>
 <script>
 function copyText(id, button) {
@@ -284,7 +285,10 @@ function copyText(id, button) {
 <h1>SpotConnect devices</h1>
 <p class="meta">AirPlay devices that spotraop offers as Spotify Connect endpoints.</p>"""
 
-PAGE_FOOT = """</main>
+PAGE_FOOT = """<footer class="meta">The bridge itself is spotraop from
+<a href="https://github.com/philippe44/SpotConnect">SpotConnect</a> by philippe44.
+This page only switches devices on and off.</footer>
+</main>
 </body>
 </html>
 """

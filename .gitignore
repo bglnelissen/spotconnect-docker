@@ -5,7 +5,7 @@ __pycache__/
 .device.lock
 .env
 
-# Local working notes about one particular home network, not published.
-CLAUDE.md
+# Local notes about one particular installation, not published.
+CLAUDE.local.md
 PROJECT_STATUS.md
 docs/

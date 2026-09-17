@@ -64,6 +64,11 @@ class SelectDeviceTest(unittest.TestCase):
 
 
 class RenderPageTest(unittest.TestCase):
+    def test_footer_credits_spotconnect(self):
+        html = page()
+        self.assertIn('<a href="https://github.com/philippe44/SpotConnect">SpotConnect</a>', html)
+        self.assertIn("philippe44", html)
+
     def test_active_section_lists_enabled_devices_with_disable_command(self):
         html = page()
         self.assertIn("Active in Spotify", html)

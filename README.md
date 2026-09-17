@@ -5,6 +5,13 @@ Play Spotify on your AirPlay speakers straight from the Spotify app. This reposi
 each AirPlay device you enable shows up in Spotify as a Spotify Connect device. A small web page
 finds the AirPlay devices on your network and gives you the command to enable or disable one.
 
+> **All the hard work is done by [SpotConnect](https://github.com/philippe44/SpotConnect)**, written
+> by [philippe44](https://github.com/philippe44). This repository only packages its `spotraop`
+> binary and adds a helper page. If this is useful to you, give SpotConnect a star, and report
+> playback bugs there once you have ruled out this packaging. See [Credits](#credits).
+
+Working on this repository with a coding agent? Point it at [AGENTS.md](AGENTS.md).
+
 ## How it works
 
 ```
@@ -143,7 +150,9 @@ static x86_64 binary from the release zip.
 
 | File | What |
 |---|---|
-| `Dockerfile` | Downloads the SpotConnect release and keeps `spotraop`. |
+| `AGENTS.md` | Guide for coding agents: map, commands, conventions, upstream etiquette. |
+| `CLAUDE.md` | Imports `AGENTS.md` for Claude Code. |
+| `Dockerfile` | Downloads the SpotConnect release and keeps `spotraop` and its license. |
 | `compose.yml` | Both services, host networking, spotraop's command line. |
 | `.env.example` | Host-specific values. Copy to `.env`. |
 | `config.xml.example` | Starting point for `config/config.xml`, without devices. |
@@ -158,8 +167,8 @@ Tests: `cd web && python3 -m unittest -v`. They need no packages beyond the stan
 
 ## For a coding agent
 
-You have been given this repository to set up. Work in this order, on the machine that will host
-the service.
+To change the code, read [AGENTS.md](AGENTS.md) first. To set the service up for a user, work in
+this order, on the machine that will host it.
 
 1. Check that the host runs Linux on x86_64 with Docker Compose and is on the same network as the
    speakers. Docker Desktop cannot do host networking the way this needs; stop and tell the user
@@ -178,9 +187,21 @@ the service.
 Restarting the `spotraop` container only affects these Connect devices. `web/device` stops and
 starts it by itself.
 
+## Credits
+
+- [SpotConnect](https://github.com/philippe44/SpotConnect) by
+  [philippe44](https://github.com/philippe44) (MIT): `spotraop`, the bridge this whole repository
+  exists to run. The image downloads the official release at build time and keeps SpotConnect's
+  license at `/usr/share/doc/spotconnect/LICENSE`. The web page links back to it in its footer.
+- SpotConnect in turn builds on [cspot](https://github.com/feelfreelinux/cspot),
+  [libraop](https://github.com/philippe44/libraop), [pupnp](https://github.com/pupnp/pupnp) and
+  [Mbed TLS](https://github.com/Mbed-TLS/mbedtls).
+- [python-zeroconf](https://github.com/python-zeroconf/python-zeroconf) (LGPL 2.1 or later) finds
+  the AirPlay devices for the web page; the web image installs it with pip.
+
+This project is not affiliated with Spotify, Apple or the SpotConnect project. Spotify and AirPlay
+are trademarks of their owners.
+
 ## License
 
-MIT, see [LICENSE](LICENSE). SpotConnect by philippe44 is MIT licensed too; the image downloads
-its release at build time. The web image installs
-[python-zeroconf](https://github.com/python-zeroconf/python-zeroconf) (LGPL 2.1 or later) with
-pip.
+MIT, see [LICENSE](LICENSE).
